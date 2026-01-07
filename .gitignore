@@ -1,0 +1,6 @@
+*.ARW
+*.DNG
+*.tif
+.vscode
+.DS_Store
+test_images/
