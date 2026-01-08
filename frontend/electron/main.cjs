@@ -109,13 +109,13 @@ function updateSplashStatus(message) {
 }
 
 // Wait for the backend to be ready with progress updates
-function waitForBackend(maxAttempts = 30) {
+function waitForBackend(maxAttempts = 120) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
     
     const checkHealth = () => {
       attempts++;
-      updateSplashStatus(`Loading models... (${attempts}s)`);
+      updateSplashStatus(`Loading... (${attempts}s)`);
       
       const req = http.request({
         hostname: '127.0.0.1',
@@ -230,10 +230,10 @@ async function startBackend() {
     });
     
     // Wait for the backend to be ready
-    // With lazy loading, startup is much faster (~2-5s instead of ~60s)
+    // Backend startup can take 30-60 seconds due to PyInstaller unpacking
     setTimeout(async () => {
       try {
-        await waitForBackend(30); // 30 seconds timeout (should be much faster now)
+        await waitForBackend(120); // 120 seconds timeout for packaged app
         resolve();
       } catch (err) {
         reject(err);
