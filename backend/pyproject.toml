@@ -9,13 +9,21 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "python-multipart>=0.0.12",
     "rawpy>=0.22.0",
-    "facenet-pytorch>=2.6.0",
+    "insightface>=0.7.3",
+    "onnxruntime-gpu>=1.16.0; sys_platform == 'linux'",
+    "onnxruntime>=1.16.0; sys_platform != 'linux'",
     "hdbscan>=0.8.38",
     "scikit-learn>=1.5.0",
     "aiosqlite>=0.20.0",
     "sqlalchemy>=2.0.0",
     "pydantic>=2.9.0",
     "pydantic-settings>=2.5.0",
+    "jaraco.functools>=4.0.0",
+    "jaraco.context>=5.0.0",
+    "jaraco.classes>=3.0.0",
+    "jaraco.text>=4.0.0",
+    "platformdirs>=4.0.0",
+    "matplotlib>=3.10.0",
 ]
 
 [build-system]

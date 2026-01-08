@@ -1,6 +1,7 @@
 """
-Face detection and recognition using facenet-pytorch.
-Supports MPS (Apple Silicon), CUDA, and CPU backends with automatic fallback.
+Face detection and recognition using InsightFace.
+Uses SCRFD for detection (better at rotated faces) and ArcFace for recognition.
+Supports CUDA, CPU, and optimized for consumer hardware.
 """
 
 import os
@@ -8,58 +9,56 @@ from pathlib import Path
 from typing import Optional, Literal
 import hashlib
 
-import torch
+import cv2
 import numpy as np
 from PIL import Image
-from facenet_pytorch import MTCNN, InceptionResnetV1
+import insightface
+from insightface.app import FaceAnalysis
 
 from services.raw_handler import RawHandler
 
 
-DeviceType = Literal["auto", "mps", "cuda", "cpu"]
+DeviceType = Literal["auto", "cuda", "cpu"]
 
 # MPS-safe image sizes (divisible by common pooling factors)
 MPS_SAFE_SIZE = 1024  # Resize large images to this for MPS compatibility
 
 
-def get_best_device(preferred: DeviceType = "auto") -> torch.device:
+def get_best_device(preferred: DeviceType = "auto") -> str:
     """
     Get the best available device for computation.
 
     Args:
-        preferred: Preferred device ('auto', 'mps', 'cuda', 'cpu')
+        preferred: Preferred device ('auto', 'cuda', 'cpu')
 
     Returns:
-        torch.device for computation
+        Device string for insightface
     """
     if preferred == "auto":
-        if torch.backends.mps.is_available():
-            return torch.device("mps")
-        elif torch.cuda.is_available():
-            return torch.device("cuda")
-        else:
-            return torch.device("cpu")
-    elif preferred == "mps":
-        if torch.backends.mps.is_available():
-            return torch.device("mps")
-        print("Warning: MPS not available, falling back to CPU")
-        return torch.device("cpu")
+        try:
+            import onnxruntime as ort
+
+            if ort.get_device() == "GPU":
+                return "cuda"
+        except:
+            pass
+        return "cpu"
     elif preferred == "cuda":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        print("Warning: CUDA not available, falling back to CPU")
-        return torch.device("cpu")
+        return "cuda"
     else:
-        return torch.device("cpu")
+        return "cpu"
 
 
 def get_available_devices() -> list[str]:
     """Get list of available compute devices."""
     devices = ["auto", "cpu"]
-    if torch.backends.mps.is_available():
-        devices.insert(1, "mps")
-    if torch.cuda.is_available():
-        devices.insert(1, "cuda")
+    try:
+        import onnxruntime as ort
+
+        if ort.get_device() == "GPU":
+            devices.insert(1, "cuda")
+    except:
+        pass
     return devices
 
 
@@ -88,40 +87,33 @@ def make_mps_safe_size(
 
 class FaceProcessor:
     """
-    Face detection and embedding extraction using MTCNN and InceptionResnetV1.
-    Supports MPS (Apple Silicon), CUDA, and CPU with automatic fallback.
-    Uses lazy loading for faster startup.
+    Face detection and embedding extraction using InsightFace.
+    Uses SCRFD for detection (excellent at detecting rotated faces)
+    and ArcFace for recognition (state-of-the-art embeddings).
+    Optimized for consumer hardware with ONNX runtime.
     """
 
     def __init__(
         self,
         cache_dir: Optional[str | Path] = None,
         device: DeviceType = "auto",
-        use_mps_for_detection: bool = True,  # Try MPS for detection
-        lazy_load: bool = True,  # Defer model loading until first use
+        lazy_load: bool = True,
     ):
         """
         Initialize face processor with models.
 
         Args:
             cache_dir: Directory to cache face thumbnails
-            device: Compute device ('auto', 'mps', 'cuda', 'cpu')
-            use_mps_for_detection: Whether to try MPS for face detection
+            device: Compute device ('auto', 'cuda', 'cpu')
             lazy_load: If True, defer model loading until first use (faster startup)
         """
         self.requested_device = device
-        self.use_mps_for_detection = use_mps_for_detection
         self._models_loaded = False
         self._loading_models = False
 
         # These will be set when models are loaded
-        self.device = None
-        self.detection_device = None
-        self.mtcnn = None
-        self.resnet = None
-
-        # Track if we need to fall back to CPU for detection
-        self._detection_fallback_to_cpu = False
+        self.device: Optional[str] = None
+        self.face_analysis: Optional["FaceAnalysis"] = None
 
         # Setup cache directory
         self.cache_dir = Path(cache_dir) if cache_dir else None
@@ -147,86 +139,70 @@ class FaceProcessor:
 
         self._loading_models = True
         try:
-            print("Loading face detection models (this may take a moment)...")
+            print(
+                "Loading face detection and recognition models (this may take a moment)..."
+            )
 
-            # Get the best device for embeddings (compute-intensive)
-            self.device = get_best_device(self.requested_device)
-            print(f"Using {self.device.type.upper()} for face embeddings")
+            # Get the best device
+            device_str = get_best_device(self.requested_device)
+            providers = (
+                ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                if device_str == "cuda"
+                else ["CPUExecutionProvider"]
+            )
 
-            # For detection, try to use same device but with fallback
-            if self.use_mps_for_detection and self.device.type == "mps":
-                self.detection_device = self.device
-                print(f"Using MPS for face detection (with image size normalization)")
-            else:
-                self.detection_device = torch.device("cpu")
-                print(f"Using CPU for face detection")
+            print(f"Using {device_str.upper()} for face processing")
 
-            self._init_models()
+            # Initialize InsightFace with SCRFD detector and ArcFace recognizer
+            # det_size: 640x640 for detection (balanced accuracy/speed)
+            # Using SCRFD-2.5GF detector (better than MTCNN for rotated faces)
+            # Using ArcFace ResNet100 (state-of-the-art recognition)
+            self.face_analysis = FaceAnalysis(
+                name="buffalo_l",  # Uses SCRFD-2.5GF + ArcFace ResNet100
+                providers=providers,
+                det_size=(640, 640),
+            )
+            self.face_analysis.prepare(ctx_id=0 if device_str == "cuda" else -1)
+
+            self.device = device_str
             self._models_loaded = True
             print(
                 f"Models loaded successfully! Using device: {self.get_device_info()['device_name']}"
             )
+        except Exception as e:
+            print(f"Error loading models: {e}")
+            # Try fallback to CPU only model
+            try:
+                print("Attempting fallback to lightweight models...")
+                self.face_analysis = FaceAnalysis(
+                    name="buffalo_m",  # Lightweight version: SCRFD-500MF + ArcFace MobileFaceNet
+                    providers=["CPUExecutionProvider"],
+                    det_size=(640, 640),
+                )
+                self.face_analysis.prepare(ctx_id=-1)
+                self.device = "cpu"
+                self._models_loaded = True
+                print("Lightweight models loaded successfully on CPU")
+            except Exception as fallback_error:
+                print(f"Failed to load models even with fallback: {fallback_error}")
+                self._loading_models = False
+                raise
         finally:
             self._loading_models = False
 
-    def _init_models(self):
-        """Initialize or reinitialize the ML models."""
-        # Initialize MTCNN for face detection
-        self.mtcnn = MTCNN(
-            image_size=160,
-            margin=20,
-            min_face_size=40,
-            thresholds=[0.6, 0.7, 0.7],
-            factor=0.709,
-            post_process=True,
-            device=self.detection_device,
-            keep_all=True,
-        )
-
-        # Initialize InceptionResnetV1 for face embeddings on preferred device
-        self.resnet = InceptionResnetV1(pretrained="vggface2").eval().to(self.device)
-
-    def _reinit_mtcnn_on_cpu(self):
-        """Reinitialize MTCNN on CPU as fallback."""
-        if not self._detection_fallback_to_cpu:
-            print("Falling back to CPU for face detection due to MPS error")
-            self._detection_fallback_to_cpu = True
-            self.detection_device = torch.device("cpu")
-            self.mtcnn = MTCNN(
-                image_size=160,
-                margin=20,
-                min_face_size=40,
-                thresholds=[0.6, 0.7, 0.7],
-                factor=0.709,
-                post_process=True,
-                device=self.detection_device,
-                keep_all=True,
-            )
-
     def set_device(self, device: DeviceType):
         """
-        Change the compute device for embeddings.
+        Change the compute device. Note: This requires reinitializing models.
 
         Args:
-            device: New device ('auto', 'mps', 'cuda', 'cpu')
+            device: New device ('auto', 'cuda', 'cpu')
         """
-        self._ensure_models_loaded()
-        new_device = get_best_device(device)
-        if new_device != self.device:
+        if not self._models_loaded or self.device != str(device):
+            self._models_loaded = False
+            self._loading_models = False
             self.requested_device = device
-            self.device = new_device
-            # Move model to new device
-            self.resnet = self.resnet.to(self.device)
-            print(f"Switched to {self.device.type.upper()} for face embeddings")
-
-            # Also try to use new device for detection if MPS
-            if (
-                self.use_mps_for_detection
-                and self.device.type == "mps"
-                and not self._detection_fallback_to_cpu
-            ):
-                self.detection_device = self.device
-                self._init_models()
+            self.face_analysis = None
+            self._ensure_models_loaded()
 
     def get_device_info(self) -> dict:
         """Get information about current device configuration."""
@@ -235,21 +211,37 @@ class FaceProcessor:
             return {
                 "device": "pending",
                 "device_name": "Not loaded yet",
-                "embedding_device": "pending",
-                "detection_device": "pending",
+                "detector": "SCRFD-2.5GF",
+                "recognizer": "ArcFace ResNet100",
                 "requested_device": self.requested_device,
                 "available_devices": get_available_devices(),
             }
         device_names = {
-            "mps": "Apple Silicon GPU (MPS)",
-            "cuda": "NVIDIA GPU (CUDA)",
-            "cpu": "CPU",
+            "cuda": "NVIDIA GPU (CUDA via ONNX)",
+            "cpu": "CPU (ONNX Runtime)",
+        }
+        device_upper = str(self.device).upper() if self.device else "UNKNOWN"
+        return {
+            "device": self.device,
+            "device_name": device_names.get(self.device, device_upper),
+            "detector": "SCRFD-2.5GF",
+            "recognizer": "ArcFace ResNet100",
+            "requested_device": self.requested_device,
+            "available_devices": get_available_devices(),
+        }
+        device_names = {
+            "cuda": "NVIDIA GPU (CUDA via ONNX)",
+            "cpu": "CPU (ONNX Runtime)",
         }
         return {
-            "device": self.device.type,
-            "device_name": device_names.get(self.device.type, self.device.type.upper()),
-            "embedding_device": self.device.type,
-            "detection_device": self.detection_device.type,
+            "device": self.device,
+            "device_name": device_names.get(self.device, self.device.upper()),
+            "detector": "SCRFD-2.5GF"
+            if self.face_analysis.models.get("detention")
+            else "SCRFD",
+            "recognizer": "ArcFace ResNet100"
+            if self.face_analysis.models.get("recognition")
+            else "ArcFace",
             "requested_device": self.requested_device,
             "available_devices": get_available_devices(),
         }
@@ -261,44 +253,18 @@ class FaceProcessor:
         content = f"{filepath.absolute()}:{stat.st_mtime}:{stat.st_size}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    def _prepare_image_for_detection(
-        self, image: Image.Image
-    ) -> tuple[Image.Image, float]:
-        """
-        Prepare image for face detection, resizing if needed for MPS compatibility.
-
-        Returns:
-            Tuple of (prepared_image, scale_factor)
-        """
-        if self.detection_device.type != "mps":
-            return image, 1.0
-
-        # For MPS, resize to safe dimensions
-        orig_width, orig_height = image.size
-        new_width, new_height = make_mps_safe_size(orig_width, orig_height)
-
-        if new_width != orig_width or new_height != orig_height:
-            scale_x = orig_width / new_width
-            scale_y = orig_height / new_height
-            scale = (scale_x + scale_y) / 2  # Average scale for box adjustment
-
-            try:
-                resample = Image.Resampling.LANCZOS
-            except AttributeError:
-                resample = Image.LANCZOS  # type: ignore
-
-            resized = image.resize((new_width, new_height), resample)
-            return resized, scale
-
-        return image, 1.0
+    def _pil_to_cv2(self, pil_image: Image.Image) -> np.ndarray:
+        """Convert PIL Image to OpenCV format (BGR)."""
+        if pil_image.mode != "RGB":
+            pil_image = pil_image.convert("RGB")
+        cv_image = np.array(pil_image)
+        return cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
 
     def detect_faces(
         self, image: Image.Image
-    ) -> tuple[
-        Optional[torch.Tensor], Optional[np.ndarray], Optional[np.ndarray], float
-    ]:
+    ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], float]:
         """
-        Detect faces in an image.
+        Detect faces in an image using SCRFD.
 
         Args:
             image: PIL Image object
@@ -311,81 +277,54 @@ class FaceProcessor:
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
-            # Prepare image for detection (resize for MPS if needed)
-            prepared_image, scale = self._prepare_image_for_detection(image)
+            # Convert to OpenCV format
+            cv_image = self._pil_to_cv2(image)
 
-            try:
-                detection_result = self.mtcnn.detect(prepared_image)
-                boxes = detection_result[0]
-                probs = detection_result[1]
-            except RuntimeError as e:
-                if "divisible" in str(e) or "MPS" in str(e):
-                    # MPS error, fall back to CPU
-                    self._reinit_mtcnn_on_cpu()
-                    detection_result = self.mtcnn.detect(image)
-                    boxes = detection_result[0]
-                    probs = detection_result[1]
-                    scale = 1.0
-                else:
-                    raise
+            # Detect faces with SCRFD
+            assert self.face_analysis is not None, "FaceAnalysis not initialized"
+            faces = self.face_analysis.get(cv_image)
 
-            if boxes is None:
-                return None, None, None, 1.0
+            if not faces:
+                return np.empty((0, 512)), None, None, 1.0
 
-            # Scale boxes back to original image size
-            if scale != 1.0:
-                boxes = boxes * scale
+            # Extract boxes and probabilities
+            boxes = np.array([face.bbox for face in faces])
+            probs = np.array([face.det_score for face in faces])
 
-            # Extract face tensors from original image (full resolution)
-            faces = self.mtcnn.extract(image, boxes, save_path=None)
+            # Extract face tensors (already aligned by SCRFD)
+            # SCRFD automatically handles rotation during detection
+            face_tensors = []
+            for face in faces:
+                # Get aligned face embedding
+                embedding = face.embedding
+                face_tensors.append(embedding)
 
-            if faces is None:
-                return None, None, None, 1.0
+            if face_tensors:
+                face_tensors = np.array(face_tensors)
+            else:
+                face_tensors = np.empty((0, 512))
 
-            if faces.dim() == 3:
-                faces = faces.unsqueeze(0)
-
-            return faces, boxes, probs, scale
+            return face_tensors, boxes, probs, 1.0
 
         except Exception as e:
             print(f"Face detection error: {e}")
-            # Try CPU fallback
-            if self.detection_device.type != "cpu":
-                self._reinit_mtcnn_on_cpu()
-                return self.detect_faces(image)
-            return None, None, None, 1.0
+            return np.empty((0, 512)), None, None, 1.0
 
-    def get_embeddings(self, face_tensors: torch.Tensor) -> np.ndarray:
+    def get_embeddings(self, face_tensors: np.ndarray) -> np.ndarray:
         """
-        Generate face embeddings from cropped face tensors.
-        Uses GPU acceleration when available with CPU fallback.
+        Get normalized face embeddings.
+        Note: SCRFD + ArcFace already provides normalized embeddings.
 
         Args:
-            face_tensors: Tensor of face images [N, 3, 160, 160]
+            face_tensors: Array of face embeddings [N, 512]
 
         Returns:
-            Array of 512-dimensional embeddings [N, 512]
+            Array of 512-dimensional normalized embeddings [N, 512]
         """
         self._ensure_models_loaded()
-        try:
-            with torch.no_grad():
-                face_tensors = face_tensors.to(self.device)
-                embeddings = self.resnet(face_tensors)
-                embeddings = embeddings / embeddings.norm(dim=1, keepdim=True)
-                return embeddings.cpu().numpy()
-        except Exception as e:
-            # Fallback to CPU if GPU fails
-            if self.device.type != "cpu":
-                print(f"GPU embedding failed ({e}), falling back to CPU")
-                with torch.no_grad():
-                    face_tensors = face_tensors.to("cpu")
-                    self.resnet = self.resnet.to("cpu")
-                    embeddings = self.resnet(face_tensors)
-                    embeddings = embeddings / embeddings.norm(dim=1, keepdim=True)
-                    # Restore to original device
-                    self.resnet = self.resnet.to(self.device)
-                    return embeddings.numpy()
-            raise
+        # ArcFace embeddings are already normalized, but ensure it
+        embeddings = face_tensors / np.linalg.norm(face_tensors, axis=1, keepdims=True)
+        return embeddings
 
     def process_image(
         self, filepath: str | Path, use_thumbnail: bool = True
@@ -410,13 +349,14 @@ class FaceProcessor:
         original_image = image
 
         faces, boxes, probs, scale = self.detect_faces(image)
-        if faces is None:
+        if len(faces) == 0 or boxes is None or probs is None:
             return []
 
-        embeddings = self.get_embeddings(faces)
+        # Get embeddings (already normalized from ArcFace)
+        embeddings = faces  # SCRFD already gives us the ArcFace embeddings
 
         results = []
-        for i, (embedding, box, prob) in enumerate(zip(embeddings, boxes, probs)):  # type: ignore
+        for i, (embedding, box, prob) in enumerate(zip(embeddings, boxes, probs)):
             face_data = {
                 "embedding": embedding,
                 "box": box.tolist(),
@@ -424,13 +364,13 @@ class FaceProcessor:
                 "thumbnail_path": None,
             }
 
-            if self.cache_dir:
+            if self.cache_dir and box is not None:
                 try:
                     img_hash = self._get_image_hash(filepath)
                     thumb_filename = f"{img_hash}_{i}.jpg"
                     thumb_path = self.cache_dir / thumb_filename
 
-                    x1, y1, x2, y2 = map(int, box)
+                    x1, y1, x2, y2 = map(int, box[:4])
                     margin = int((x2 - x1) * 0.1)
                     x1, y1 = max(0, x1 - margin), max(0, y1 - margin)
                     x2, y2 = (
@@ -470,7 +410,11 @@ class FaceProcessor:
         return float(np.dot(embedding1, embedding2))
 
     def are_same_person(
-        self, embedding1: np.ndarray, embedding2: np.ndarray, threshold: float = 0.6
+        self, embedding1: np.ndarray, embedding2: np.ndarray, threshold: float = 0.5
     ) -> bool:
-        """Determine if two face embeddings belong to the same person."""
+        """
+        Determine if two face embeddings belong to the same person.
+        ArcFace embeddings typically use a lower threshold (0.5) compared to
+        traditional FaceNet (0.6) due to better angular separation.
+        """
         return self.compute_similarity(embedding1, embedding2) > threshold

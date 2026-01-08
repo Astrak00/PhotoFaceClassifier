@@ -10,11 +10,14 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, coll
 
 block_cipher = None
 
-# Collect all torch submodules automatically (torch has many internal dependencies)
-torch_hiddenimports = collect_submodules('torch')
+# Collect all onnxruntime submodules automatically
+onnxruntime_hiddenimports = collect_submodules('onnxruntime')
 
-# Hidden imports - combination of auto-collected and explicit
-hiddenimports = torch_hiddenimports + [
+# Collect all insightface submodules
+insightface_hiddenimports = collect_submodules('insightface')
+
+ # Hidden imports - combination of auto-collected and explicit
+hiddenimports = onnxruntime_hiddenimports + insightface_hiddenimports + [
     # FastAPI and dependencies
     'fastapi',
     'uvicorn',
@@ -36,27 +39,32 @@ hiddenimports = torch_hiddenimports + [
     'pydantic_settings',
     'pydantic_core',
     'annotated_types',
-    
+
     # Database
     'sqlalchemy',
     'sqlalchemy.dialects.sqlite',
-    
-    # ML/AI packages (torch handled above)
-    'torchvision',
-    'facenet_pytorch',
-    'facenet_pytorch.models.inception_resnet_v1',
-    'facenet_pytorch.models.mtcnn',
+
+    # ML/AI packages
+    'onnxruntime',
+    'onnxruntime.capi',
+    'onnxruntime.capi.onnxruntime_pybind11_state',
+    'insightface',
+    'insightface.app',
+    'insightface.model_zoo',
+    'insightface.utils',
+    'cv2',
+    'cv2.data',
     'sklearn',
     'sklearn.cluster',
     'hdbscan',
-    
+
     # Image processing
     'PIL',
     'PIL.Image',
     'PIL.ExifTags',
     'rawpy',
     'numpy',
-    
+
     # Our modules
     'models',
     'models.database',
@@ -66,16 +74,30 @@ hiddenimports = torch_hiddenimports + [
     'services.clustering',
     'services.folder_manager',
     'services.raw_handler',
+
+    # Setuptools vendored modules
+    'jaraco',
+    'jaraco.context',
+    'jaraco.functools',
+    'jaraco.classes',
+    'jaraco.path',
+    'jaraco.text',
+    'jaraco.vcs',
+    'setuptools._vendor.jaraco',
 ]
 
 # Collect data files from packages that need them
 datas = []
 
-# Explicitly collect facenet_pytorch data
-import facenet_pytorch
-facenet_pkg_path = os.path.dirname(facenet_pytorch.__file__)
-datas += [(os.path.join(facenet_pkg_path, 'data'), 'facenet_pytorch/data')]
-datas += [(os.path.join(facenet_pkg_path, 'models'), 'facenet_pytorch/models')]
+# Collect insightface data files
+import insightface
+insightface_pkg_path = os.path.dirname(insightface.__file__)
+datas += [(os.path.join(insightface_pkg_path, 'data'), 'insightface/data')]
+
+# Collect cv2 data files
+import cv2
+cv2_data = os.path.dirname(cv2.data.__file__)
+datas += [(cv2_data, 'cv2/data')]
 
 # Analysis
 a = Analysis(
@@ -87,27 +109,30 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        # GUI toolkits (not needed)
-        'tkinter',
-        '_tkinter',
-        'PyQt5',
-        'PyQt6',
-        'PySide2',
-        'PySide6',
-        'wx',
-        # Dev/test tools (not needed in production)
-        'matplotlib',
-        'IPython',
-        'jupyter',
-        'notebook',
-        'pytest',
-        'sphinx',
-        'setuptools',
-        'pip',
-        # Unused torch components (caffe2 is large and not needed)
-        'caffe2',
-    ],
+     excludes=[
+         # GUI toolkits (not needed)
+         'tkinter',
+         '_tkinter',
+         'PyQt5',
+         'PyQt6',
+         'PySide2',
+         'PySide6',
+         'wx',
+         # Dev/test tools (not needed in production)
+         'IPython',
+         'jupyter',
+         'notebook',
+         'pytest',
+         'sphinx',
+         'setuptools',
+         'pip',
+         # PyTorch (no longer needed, using ONNX)
+         'torch',
+         'torchvision',
+         'torch.nn',
+         'torch.optim',
+         'torch.utils',
+     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
