@@ -4,3 +4,7 @@
 .vscode
 .DS_Store
 test_images/
+*.AppImage
+*.dmg
+*.exe
+*.deb

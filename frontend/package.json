@@ -1,7 +1,7 @@
 {
   "name": "face-classifier",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "AI-powered face classifier for organizing photos by person",
   "author": "Astrak00",
   "license": "MIT",

@@ -1,6 +1,6 @@
 [project]
 name = "face-classifier-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Face classification backend for photo organization"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

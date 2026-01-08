@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Photo Face Classifier",
     description="Classify and organize photos by detected faces",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
