@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Folder, ChevronUp, ChevronRight, Play, Loader2, CheckCircle2, 
-  XCircle, Trash2, AlertTriangle, Images, Users, Sparkles, RotateCcw
+  XCircle, AlertTriangle, Images, Users, Sparkles, RotateCcw, FolderOpen
 } from 'lucide-react'
-import { browseDirectory, startScan, getLatestScan, resetDatabase, type ScanProgress } from '../api'
+import { browseDirectory, startScan, getLatestScan, resetDatabase, isElectron, selectDirectoryNative, type ScanProgress } from '../api'
 
 export default function ScanPage() {
   const queryClient = useQueryClient()
@@ -66,6 +66,13 @@ export default function ScanPage() {
       recursive,
       use_thumbnails: useThumbnails,
     })
+  }
+
+  const handleBrowseNative = async () => {
+    const dir = await selectDirectoryNative()
+    if (dir) {
+      setSelectedPath(dir)
+    }
   }
 
   const activeScan = currentScanId ? (scanProgress || latestScan) : null
@@ -133,9 +140,9 @@ export default function ScanPage() {
       <div className="bg-zinc-900 rounded-2xl border border-zinc-800 overflow-hidden">
         {/* Path Input */}
         <div className="p-5 border-b border-zinc-800">
-          <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
+          <span className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
             Directory Path
-          </label>
+          </span>
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <Folder className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -147,6 +154,17 @@ export default function ScanPage() {
                 placeholder="Enter or browse to select a folder..."
               />
             </div>
+            {isElectron() && (
+              <button
+                type="button"
+                onClick={handleBrowseNative}
+                className="px-4 bg-violet-600 hover:bg-violet-500 rounded-xl transition-colors flex items-center gap-2"
+                title="Browse folders"
+              >
+                <FolderOpen className="w-4 h-4 text-white" />
+                <span className="text-sm text-white font-medium">Browse</span>
+              </button>
+            )}
             {dirData?.parent_path && (
               <button
                 type="button"

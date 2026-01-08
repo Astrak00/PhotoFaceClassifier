@@ -5,6 +5,12 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Use relative paths for Electron production build
+  base: './',
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
   server: {
     proxy: {
       '/api': {

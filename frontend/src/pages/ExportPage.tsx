@@ -10,6 +10,8 @@ import {
   createExportFolders, 
   previewExport,
   getThumbnailUrl,
+  isElectron,
+  selectDirectoryNative,
   type FolderSpec 
 } from '../api'
 
@@ -54,6 +56,14 @@ export default function ExportPage() {
   const exportMutation = useMutation({
     mutationFn: createExportFolders,
   })
+
+  const handleBrowseNative = async () => {
+    const dir = await selectDirectoryNative()
+    if (dir) {
+      setOutputPath(dir)
+      setShowBrowser(false)
+    }
+  }
 
   const addFolder = () => {
     const newFolder: FolderConfig = {
@@ -205,17 +215,27 @@ export default function ExportPage() {
                 placeholder="Select output directory..."
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowBrowser(!showBrowser)}
-              className={`px-4 rounded-xl font-medium text-sm transition-colors border ${
-                showBrowser 
-                  ? 'bg-violet-600 border-violet-600 text-white' 
-                  : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              Browse
-            </button>
+            {isElectron() ? (
+              <button
+                type="button"
+                onClick={handleBrowseNative}
+                className="px-4 rounded-xl font-medium text-sm transition-colors border bg-violet-600 border-violet-600 text-white hover:bg-violet-500"
+              >
+                Browse
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowBrowser(!showBrowser)}
+                className={`px-4 rounded-xl font-medium text-sm transition-colors border ${
+                  showBrowser 
+                    ? 'bg-violet-600 border-violet-600 text-white' 
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                Browse
+              </button>
+            )}
           </div>
         </div>
 

@@ -1,6 +1,42 @@
 // API functions for the face classifier backend
+import './electron.d.ts'
 
-const API_BASE = '/api'
+// In Electron production, we need to use the full backend URL
+// In development with Vite proxy, we use relative paths
+let API_BASE = '/api'
+let BACKEND_BASE = ''
+
+// Initialize the API base URL for Electron
+export async function initializeApi(): Promise<void> {
+  if (window.electronAPI?.isElectron) {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      BACKEND_BASE = backendUrl
+      API_BASE = `${backendUrl}/api`
+      console.log('Electron mode: API base set to', API_BASE)
+    } catch (err) {
+      console.error('Failed to get backend URL from Electron:', err)
+    }
+  }
+}
+
+// Check if running in Electron
+export function isElectron(): boolean {
+  return !!window.electronAPI?.isElectron
+}
+
+// Use native directory picker in Electron
+export async function selectDirectoryNative(): Promise<string | null> {
+  if (window.electronAPI?.selectDirectory) {
+    return window.electronAPI.selectDirectory()
+  }
+  return null
+}
+
+// Get the current API base (useful for debugging)
+export function getApiBase(): string {
+  return API_BASE
+}
 
 export interface Stats {
   total_photos: number
@@ -258,5 +294,9 @@ export function getThumbnailUrl(thumbnailPath: string | null): string {
   if (!thumbnailPath) return ''
   // Extract just the filename from the path
   const filename = thumbnailPath.split('/').pop()
+  // In Electron production, use full backend URL; otherwise use relative path
+  if (BACKEND_BASE) {
+    return `${BACKEND_BASE}/api/thumbnail/${filename}`
+  }
   return `/api/thumbnail/${filename}`
 }
