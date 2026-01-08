@@ -27,19 +27,20 @@ function getBackendExecutablePath() {
   const executableName = platform === 'win32' ? 'face-classifier-backend.exe' : 'face-classifier-backend';
   
   if (isDev) {
-    // In development, look for compiled backend in backend/dist/{platform}-{arch}/
-    const devPath = path.join(__dirname, '..', '..', 'backend', 'dist', `${platform}-${arch}`, executableName);
+    // In development, look for compiled backend in backend/dist/{platform}-{arch}/face-classifier-backend/
+    // (PyInstaller directory mode output)
+    const devPath = path.join(__dirname, '..', '..', 'backend', 'dist', `${platform}-${arch}`, 'face-classifier-backend', executableName);
     if (fs.existsSync(devPath)) {
       return devPath;
     }
-    // Also check without platform-arch subdirectory for simpler dev builds
-    const simplePath = path.join(__dirname, '..', '..', 'backend', 'dist', executableName);
-    if (fs.existsSync(simplePath)) {
-      return simplePath;
+    // Also check old single-file location for backwards compatibility
+    const oldPath = path.join(__dirname, '..', '..', 'backend', 'dist', `${platform}-${arch}`, executableName);
+    if (fs.existsSync(oldPath)) {
+      return oldPath;
     }
     return null; // Will use uv fallback
   } else {
-    // In production, backend binary is in resources/backend/
+    // In production, backend is in resources/backend/face-classifier-backend
     return path.join(process.resourcesPath, 'backend', executableName);
   }
 }

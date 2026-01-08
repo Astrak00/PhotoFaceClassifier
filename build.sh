@@ -159,20 +159,23 @@ uv run pyinstaller \
     $PYINSTALLER_ARCH \
     backend.spec
 
-# Verify backend was built
+# Verify backend was built (now it's a directory with the executable inside)
+BACKEND_DIR_OUTPUT="$BACKEND_OUTPUT_DIR/face-classifier-backend"
 if [ "$TARGET_PLATFORM" = "win32" ]; then
-    BACKEND_BINARY="$BACKEND_OUTPUT_DIR/face-classifier-backend.exe"
+    BACKEND_BINARY="$BACKEND_DIR_OUTPUT/face-classifier-backend.exe"
 else
-    BACKEND_BINARY="$BACKEND_OUTPUT_DIR/face-classifier-backend"
+    BACKEND_BINARY="$BACKEND_DIR_OUTPUT/face-classifier-backend"
 fi
 
 if [ ! -f "$BACKEND_BINARY" ]; then
     echo -e "${RED}Error: Backend binary was not created!${NC}"
+    echo "Expected: $BACKEND_BINARY"
+    ls -la "$BACKEND_OUTPUT_DIR/" 2>/dev/null || echo "Output dir not found"
     exit 1
 fi
 
 echo -e "${GREEN}Backend built successfully: $BACKEND_BINARY${NC}"
-ls -lh "$BACKEND_BINARY"
+du -sh "$BACKEND_DIR_OUTPUT"
 
 # ============================================
 # Step 2: Build Frontend
@@ -203,6 +206,7 @@ echo "=============================================="
 echo -e "${NC}"
 
 # Create a temporary electron-builder config with the correct backend path
+# Backend is now a directory (for faster startup), not a single file
 BUILDER_CONFIG="electron-builder-temp.json"
 cat > "$BUILDER_CONFIG" << EOF
 {
@@ -219,8 +223,8 @@ cat > "$BUILDER_CONFIG" << EOF
   ],
   "extraResources": [
     {
-      "from": "../backend/dist/${TARGET_PLATFORM}-${TARGET_ARCH}/face-classifier-backend$([ "$TARGET_PLATFORM" = "win32" ] && echo ".exe")",
-      "to": "backend/face-classifier-backend$([ "$TARGET_PLATFORM" = "win32" ] && echo ".exe")"
+      "from": "../backend/dist/${TARGET_PLATFORM}-${TARGET_ARCH}/face-classifier-backend",
+      "to": "backend"
     }
   ],
   "mac": {
