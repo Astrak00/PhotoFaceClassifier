@@ -2,10 +2,23 @@
 
 A local, GPU-accelerated photo organization tool that automatically detects and groups faces in your photos. Perfect for photographers who need to sort through large collections of images by the people in them.
 
+- [Features](#features)
+- [Download](#download)
+- [Tech Stack](#tech-stack)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Running the Application](#running-the-application)
+- [Usage](#usage)
+  - [Scan Photos](#1-scan-photos)
+  - [Review People](#2-review-people)
+  - [Export Folders](#3-export-folders)
+- [API Endpoints](#api-endpoints)
+- [License](#license)
+
 ## Features
 
 - **Face Detection & Recognition**: Uses MTCNN for face detection and FaceNet (InceptionResnetV1) for face embeddings
-- **GPU Acceleration**: Optimized for Apple Silicon M-series chips using MPS (Metal Performance Shaders)
+- **GPU Acceleration**: Optimized for Apple Silicon M-series chips using MPS (Metal Performance Shaders) and CUDA.
 - **RAW Support**: Native support for Sony ARW files and other RAW formats (CR2, CR3, NEF, DNG, ORF, RW2)
 - **Fast Scanning**: Uses embedded JPEG thumbnails from RAW files for quick initial scanning
 - **Automatic Clustering**: HDBSCAN groups similar faces into person clusters automatically
@@ -14,6 +27,12 @@ A local, GPU-accelerated photo organization tool that automatically detects and 
   - **ANY** mode: Photos with at least one of the selected people
   - **ALL** mode: Photos with all of the selected people (group shots)
 - **Non-Destructive**: Original files are never modified; uses symbolic links
+
+## Download 
+To get the latest version, go to the [Releases](https://github.com/Astrak00/face_recognition_organizer/releases/latest) page and download the appropriate package for your system.
+
+> [!NOTE]
+> If the latest release is not available for your platform, you can build and run the application from source by following the instructions below. [link](#installation)
 
 ## Tech Stack
 
@@ -31,6 +50,7 @@ A local, GPU-accelerated photo organization tool that automatically detects and 
 ## Requirements
 
 - macOS with Apple Silicon (M1/M2/M3/M4) for GPU acceleration
+- Optional: NVIDIA GPU with CUDA for non-Apple systems
 - Python 3.11 or 3.12
 - Bun (JavaScript runtime)
 - ~500MB disk space for models (downloaded on first run)
@@ -49,51 +69,21 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 curl -fsSL https://bun.sh/install | bash
 ```
 
-### 3. Install Backend Dependencies
+### 3. Build the application
 
 ```bash
-cd backend
-uv sync
-```
-
-### 4. Install Frontend Dependencies
-
-```bash
-cd frontend
-bun install
+./build.sh
 ```
 
 ## Running the Application
 
-You need to run both the backend and frontend in separate terminals.
-
-### Terminal 1: Start Backend
-
-```bash
-./start-backend.sh
-# Or manually:
-cd backend
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The backend will start on http://localhost:8000. On first run, it will download the face recognition models (~100MB).
-
-### Terminal 2: Start Frontend
-
-```bash
-./start-frontend.sh
-# Or manually:
-cd frontend
-bun run dev
-```
-
-The frontend will start on http://localhost:5173.
+The result of building the application is one single executable, containing all the necessary files.
 
 ## Usage
 
 ### 1. Scan Photos
 
-1. Open http://localhost:5173 in your browser
+1. Open the appplication
 2. Navigate to the **Scan** tab
 3. Browse to select your photos directory
 4. Configure options:
@@ -148,71 +138,6 @@ The backend provides a REST API:
 
 Full API docs available at http://localhost:8000/docs when the backend is running.
 
-## Performance
-
-Estimated processing times on Apple Silicon M4:
-
-| Operation | Time |
-|-----------|------|
-| Thumbnail extraction | ~50ms per image |
-| Face detection | ~100ms per image |
-| Face embedding | ~20ms per face |
-| Clustering (10k faces) | ~2 seconds |
-
-For 10,000 images with ~2 faces each:
-- **With thumbnails**: ~15-20 minutes
-- **Full RAW processing**: ~8-10 hours
-
-## Project Structure
-
-```
-img_classifier/
-├── backend/
-│   ├── main.py              # FastAPI application
-│   ├── models/
-│   │   ├── database.py      # SQLite models
-│   │   └── schemas.py       # Pydantic schemas
-│   ├── services/
-│   │   ├── raw_handler.py   # RAW/image processing
-│   │   ├── face_processor.py # Face detection/recognition
-│   │   ├── clustering.py    # HDBSCAN clustering
-│   │   └── folder_manager.py # Symlink folder creation
-│   └── data/
-│       ├── faces.db         # SQLite database
-│       └── cache/           # Face thumbnails
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx          # Main application
-│   │   ├── api.ts           # API client
-│   │   └── pages/
-│   │       ├── ScanPage.tsx
-│   │       ├── PeoplePage.tsx
-│   │       └── ExportPage.tsx
-│   └── package.json
-├── start-backend.sh
-└── start-frontend.sh
-```
-
-## Troubleshooting
-
-### Models not loading
-The face recognition models are downloaded automatically on first run. If this fails, check your internet connection.
-
-### MPS not available
-If you see "Using CPU for face processing", ensure you have:
-- PyTorch 2.0+ installed
-- macOS 12.3+
-- Apple Silicon Mac
-
-### Scan is slow
-- Enable "Use embedded thumbnails" option
-- Ensure MPS is being used (check terminal output)
-- Close other GPU-intensive applications
-
-### Faces not clustering correctly
-- Increase `min_cluster_size` in `clustering.py` for fewer, larger clusters
-- Decrease it for more granular grouping
-- Use the merge feature to manually combine similar persons
 
 ## License
 
