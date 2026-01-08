@@ -14,19 +14,11 @@ import {
   selectDirectoryNative,
   type FolderSpec 
 } from '../api'
-
-interface FolderConfig {
-  id: string
-  name: string
-  personIds: Set<number>
-  logic: 'any' | 'all'
-}
+import { useExportContext, type FolderConfig } from '../contexts/ExportContext'
 
 export default function ExportPage() {
-  const [folders, setFolders] = useState<FolderConfig[]>([])
-  const [outputPath, setOutputPath] = useState('')
+  const { folders, setFolders, outputPath, setOutputPath, previewFolderId, setPreviewFolderId } = useExportContext()
   const [showBrowser, setShowBrowser] = useState(false)
-  const [previewFolderId, setPreviewFolderId] = useState<string | null>(null)
 
   // Only fetch named persons for export
   const { data: allPersons } = useQuery({

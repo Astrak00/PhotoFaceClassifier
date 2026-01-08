@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
 import { initializeApi } from './api.ts'
+import { ExportProvider } from './contexts/ExportContext.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +22,9 @@ initializeApi().then(() => {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <HashRouter>
-          <App />
+          <ExportProvider>
+            <App />
+          </ExportProvider>
         </HashRouter>
       </QueryClientProvider>
     </StrictMode>,

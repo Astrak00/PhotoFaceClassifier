@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
-  Check, Merge, X, EyeOff, Eye, ChevronDown, ChevronUp,
-  Edit3, Save, Users, Loader2
+  Check, Merge, X, EyeOff, Eye, ChevronDown,
+  Edit3, Save, Users, Loader2, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { 
   fetchPersons, fetchPerson, updatePerson, hidePerson, mergePersons, 
@@ -14,18 +14,19 @@ export default function PeoplePage() {
   const [selectedPersons, setSelectedPersons] = useState<Set<number>>(new Set())
   const [editingPerson, setEditingPerson] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
-  const [expandedPerson, setExpandedPerson] = useState<number | null>(null)
+  const [modalPerson, setModalPerson] = useState<number | null>(null)
   const [showHidden, setShowHidden] = useState(false)
+  const [fullscreenImage, setFullscreenImage] = useState<{ url: string; filename: string; index: number } | null>(null)
 
   const { data: persons, isLoading } = useQuery({
     queryKey: ['persons', showHidden],
     queryFn: () => fetchPersons(showHidden),
   })
 
-  const { data: expandedPersonData, isLoading: isLoadingExpanded } = useQuery({
-    queryKey: ['person', expandedPerson],
-    queryFn: () => fetchPerson(expandedPerson!),
-    enabled: !!expandedPerson,
+  const { data: modalPersonData, isLoading: isLoadingModal } = useQuery({
+    queryKey: ['person', modalPerson],
+    queryFn: () => fetchPerson(modalPerson!),
+    enabled: !!modalPerson,
   })
 
   const updateMutation = useMutation({
@@ -62,6 +63,38 @@ export default function PeoplePage() {
     },
   })
 
+  const navigateFullscreen = useCallback((direction: number) => {
+    if (!fullscreenImage || !modalPersonData) return
+    const newIndex = fullscreenImage.index + direction
+    if (newIndex >= 0 && newIndex < modalPersonData.faces.length) {
+      const face = modalPersonData.faces[newIndex]
+      setFullscreenImage({
+        url: getThumbnailUrl(face.thumbnail_path),
+        filename: face.photo.filename,
+        index: newIndex,
+      })
+    }
+  }, [fullscreenImage, modalPersonData])
+
+  // Handle keyboard navigation for fullscreen image
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (fullscreenImage && modalPersonData) {
+        if (e.key === 'Escape') {
+          setFullscreenImage(null)
+        } else if (e.key === 'ArrowLeft') {
+          navigateFullscreen(-1)
+        } else if (e.key === 'ArrowRight') {
+          navigateFullscreen(1)
+        }
+      } else if (modalPerson && e.key === 'Escape') {
+        setModalPerson(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [fullscreenImage, modalPersonData, modalPerson, navigateFullscreen])
+
   const handleSelectPerson = (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
     const newSelected = new Set(selectedPersons)
@@ -92,9 +125,20 @@ export default function PeoplePage() {
     mergeMutation.mutate({ keepId, mergeIds })
   }
 
-  const handleExpand = (personId: number) => {
-    setExpandedPerson(expandedPerson === personId ? null : personId)
+  const handleOpenModal = (personId: number) => {
+    setModalPerson(personId)
   }
+
+  const handleImageClick = (face: { thumbnail_path: string | null; photo: { filename: string } }, index: number) => {
+    if (!face.thumbnail_path) return
+    setFullscreenImage({
+      url: getThumbnailUrl(face.thumbnail_path),
+      filename: face.photo.filename,
+      index,
+    })
+  }
+
+  const currentPerson = persons?.find(p => p.id === modalPerson)
 
   if (isLoading) {
     return (
@@ -183,7 +227,6 @@ export default function PeoplePage() {
       {/* People Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {persons.map((person) => {
-          const isExpanded = expandedPerson === person.id
           const isSelected = selectedPersons.has(person.id)
           
           return (
@@ -229,7 +272,7 @@ export default function PeoplePage() {
               {/* Face Thumbnails Grid - Clickable */}
               <button
                 type="button"
-                onClick={() => handleExpand(person.id)}
+                onClick={() => handleOpenModal(person.id)}
                 className="w-full relative group"
               >
                 <div className="grid grid-cols-3 gap-0.5 mx-4 rounded-xl overflow-hidden">
@@ -249,11 +292,11 @@ export default function PeoplePage() {
                     ))}
                 </div>
                 
-                {/* Expand Indicator */}
+                {/* View All Indicator */}
                 <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
                   <span className="flex items-center gap-1 text-xs text-white/80">
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    {isExpanded ? 'Collapse' : 'View all photos'}
+                    <ChevronDown className="w-4 h-4" />
+                    View all photos
                   </span>
                 </div>
               </button>
@@ -267,9 +310,8 @@ export default function PeoplePage() {
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onClick={(e) => e.stopPropagation()}
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50"
+                      className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50"
                       placeholder="Enter name..."
-
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleSaveName(person.id, e as unknown as React.MouseEvent)
                         if (e.key === 'Escape') setEditingPerson(null)
@@ -278,14 +320,14 @@ export default function PeoplePage() {
                     <button
                       type="button"
                       onClick={(e) => handleSaveName(person.id, e)}
-                      className="p-2 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors"
+                      className="p-2 bg-emerald-500 hover:bg-emerald-400 rounded-lg transition-colors flex-shrink-0"
                     >
                       <Save className="w-4 h-4 text-white" />
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setEditingPerson(null) }}
-                      className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                      className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex-shrink-0"
                     >
                       <X className="w-4 h-4 text-zinc-400" />
                     </button>
@@ -303,44 +345,6 @@ export default function PeoplePage() {
                   </button>
                 )}
               </div>
-
-              {/* Expanded View - All Faces */}
-              {isExpanded && (
-                <div className="border-t border-zinc-800 p-4 bg-zinc-950/50">
-                  {isLoadingExpanded ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
-                    </div>
-                  ) : expandedPersonData ? (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
-                          All {expandedPersonData.faces.length} appearances
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
-                        {expandedPersonData.faces.map((face) => (
-                          <div key={face.id} className="group relative">
-                            <div className="aspect-square rounded-lg overflow-hidden bg-zinc-900">
-                              <img
-                                src={getThumbnailUrl(face.thumbnail_path)}
-                                alt=""
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                            <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-end p-1.5">
-                              <span className="text-[10px] text-white/90 truncate w-full font-mono">
-                                {face.photo.filename}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
 
               {/* Unhide button for hidden persons */}
               {showHidden && (
@@ -366,6 +370,144 @@ export default function PeoplePage() {
           <p className="text-zinc-500 text-sm">
             Select another person to merge them together
           </p>
+        </div>
+      )}
+
+      {/* Modal for All Photos */}
+      {modalPerson && (
+        <div 
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10"
+        >
+          {/* Backdrop */}
+          <button 
+            type="button"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-default"
+            onClick={() => setModalPerson(null)}
+            aria-label="Close modal"
+          />
+          
+          {/* Modal Content */}
+          <div 
+            className="relative w-full max-w-5xl max-h-[85vh] bg-zinc-900 rounded-2xl border border-zinc-700 shadow-2xl flex flex-col overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-zinc-800">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  {currentPerson?.name || 'Unknown Person'}
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  {modalPersonData?.faces.length ?? '...'} photos
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalPerson(null)}
+                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {isLoadingModal ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                </div>
+              ) : modalPersonData ? (
+                <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                  {modalPersonData.faces.map((face, index) => (
+                    <button
+                      key={face.id}
+                      type="button"
+                      onClick={() => handleImageClick(face, index)}
+                      className="group relative aspect-square rounded-xl overflow-hidden bg-zinc-800 hover:ring-2 hover:ring-violet-500 transition-all"
+                    >
+                      <img
+                        src={getThumbnailUrl(face.thumbnail_path)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                        <span className="text-[10px] text-white/90 truncate w-full font-mono">
+                          {face.photo.filename}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Viewer */}
+      {fullscreenImage && modalPersonData && (
+        <div 
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95"
+        >
+          {/* Background overlay for closing */}
+          <button 
+            type="button"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setFullscreenImage(null)}
+            aria-label="Close fullscreen"
+          />
+          
+          {/* Close Button */}
+          <button
+            type="button"
+            onClick={() => setFullscreenImage(null)}
+            className="absolute top-4 right-4 p-3 rounded-full bg-zinc-800/80 text-white hover:bg-zinc-700 transition-colors z-10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+
+          {/* Navigation - Previous */}
+          {fullscreenImage.index > 0 && (
+            <button
+              type="button"
+              onClick={() => navigateFullscreen(-1)}
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-800/80 text-white hover:bg-zinc-700 transition-colors z-10"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+
+          {/* Navigation - Next */}
+          {fullscreenImage.index < modalPersonData.faces.length - 1 && (
+            <button
+              type="button"
+              onClick={() => navigateFullscreen(1)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-800/80 text-white hover:bg-zinc-700 transition-colors z-10"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          )}
+
+          {/* Image Container */}
+          <div 
+            className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center z-10"
+          >
+            <img
+              src={fullscreenImage.url}
+              alt={fullscreenImage.filename}
+              className="max-w-full max-h-[85vh] object-contain rounded-lg"
+            />
+            <div className="mt-4 text-center">
+              <p className="text-white font-medium">{fullscreenImage.filename}</p>
+              <p className="text-zinc-500 text-sm">
+                {fullscreenImage.index + 1} of {modalPersonData.faces.length}
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>
